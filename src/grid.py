@@ -90,18 +90,28 @@ def compute_overlaps(sequences: list[dict], grid_m: float) -> dict:
         'activity_ids': list[int],
     }
     """
+    # Build a mapping from each cell to the activities that passed through it.
+    # Each cell is expanded to include its 8 neighbours so that GPS drift
+    # (which causes the same street to snap to adjacent cells on different runs)
+    # is compensated. Two activities within one cell-width of each other are
+    # treated as sharing the same segment.
     cell_usage: dict[tuple[int, int], set[int]] = {}
 
     for seq in sequences:
         activity_id = seq["activity_id"]
-        seen_in_activity: set[tuple[int, int]] = set()
+        # Track which expanded cells were already claimed for this activity
+        # to avoid double-counting it within the same activity.
+        claimed: set[tuple[int, int]] = set()
         for cell in seq["grid_cells"]:
-            cell_t = (cell[0], cell[1])
-            if cell_t not in seen_in_activity:
-                seen_in_activity.add(cell_t)
-                if cell_t not in cell_usage:
-                    cell_usage[cell_t] = set()
-                cell_usage[cell_t].add(activity_id)
+            r, c = cell[0], cell[1]
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    neighbour = (r + dr, c + dc)
+                    if neighbour not in claimed:
+                        claimed.add(neighbour)
+                        if neighbour not in cell_usage:
+                            cell_usage[neighbour] = set()
+                        cell_usage[neighbour].add(activity_id)
 
     # Only keep cells used by more than one activity
     overlaps = {}

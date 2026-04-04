@@ -113,28 +113,42 @@ def create_app(config: dict | None = None) -> Flask:
                 if cell_key not in cell_coords and len(entry) >= 4:
                     cell_coords[cell_key] = (entry[2], entry[3])
 
+        def best_overlap(r, c):
+            """Return the overlap entry for cell (r,c) or its nearest neighbour."""
+            for dr in range(0, 2):
+                for dc in range(0, 2):
+                    for sr, sc in [(dr, dc), (-dr, dc), (dr, -dc), (-dr, -dc)]:
+                        k = (r + sr, c + sc)
+                        if k in overlaps:
+                            return k, overlaps[k]
+            return None, None
+
         # Build line segments from consecutive overlapping cells along tracks
         # using original GPS coordinates
         edge_data = {}
         for seq in sequences:
             entries = seq["grid_cells"]
             for i in range(len(entries) - 1):
-                a_key = (entries[i][0], entries[i][1])
-                b_key = (entries[i + 1][0], entries[i + 1][1])
-                if a_key in overlaps and b_key in overlaps:
-                    edge_key = (a_key, b_key) if a_key <= b_key else (b_key, a_key)
-                    count = min(overlaps[a_key]["count"], overlaps[b_key]["count"])
-                    aids = set(overlaps[a_key]["activity_ids"]) & set(overlaps[b_key]["activity_ids"])
-                    if edge_key not in edge_data or count > edge_data[edge_key]["count"]:
-                        # Use original GPS coords from this activity's track
-                        coord_a = (entries[i][2], entries[i][3]) if len(entries[i]) >= 4 else cell_coords.get(a_key, (0, 0))
-                        coord_b = (entries[i + 1][2], entries[i + 1][3]) if len(entries[i + 1]) >= 4 else cell_coords.get(b_key, (0, 0))
-                        edge_data[edge_key] = {
-                            "count": count,
-                            "activity_ids": sorted(aids),
-                            "coord_a": coord_a,
-                            "coord_b": coord_b,
-                        }
+                a_r, a_c = entries[i][0], entries[i][1]
+                b_r, b_c = entries[i + 1][0], entries[i + 1][1]
+                a_key, a_info = best_overlap(a_r, a_c)
+                b_key, b_info = best_overlap(b_r, b_c)
+                if a_key is None or b_key is None:
+                    continue
+                edge_key = (a_key, b_key) if a_key <= b_key else (b_key, a_key)
+                count = min(a_info["count"], b_info["count"])
+                aids = set(a_info["activity_ids"]) & set(b_info["activity_ids"])
+                if not aids:
+                    continue
+                if edge_key not in edge_data or count > edge_data[edge_key]["count"]:
+                    coord_a = (entries[i][2], entries[i][3]) if len(entries[i]) >= 4 else (0, 0)
+                    coord_b = (entries[i + 1][2], entries[i + 1][3]) if len(entries[i + 1]) >= 4 else (0, 0)
+                    edge_data[edge_key] = {
+                        "count": count,
+                        "activity_ids": sorted(aids),
+                        "coord_a": coord_a,
+                        "coord_b": coord_b,
+                    }
 
         if not edge_data:
             return jsonify({"edges": [], "max_count": 0,
