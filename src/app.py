@@ -12,7 +12,7 @@ from src.classify import classify_activity
 from src.compute import compute_incremental, recompute_all
 from src.config import load_config, setup_logging
 from src.gpx_parse import extract_points_for_cells
-from src.grid import cell_center, compute_overlaps, group_into_segments
+from src.grid import compute_overlaps
 from src.storage import FavTracksStore
 
 log = logging.getLogger("favtracks.app")
@@ -77,45 +77,84 @@ def create_app(config: dict | None = None) -> Flask:
         finally:
             store.close()
 
-        if not sequences:
-            return jsonify({"segments": [], "max_count": 0})
+        total_in_category = len(sequences)
 
-        # Filter by date and user via garmin_nostra DB
+        if not sequences:
+            return jsonify({"edges": [], "max_count": 0,
+                            "total_activities": 0, "filtered_activities": 0})
+
+        # Always filter by date and user via garmin_nostra DB
         activity_ids = {s["activity_id"] for s in sequences}
-        if date_from or date_to or user_ids_raw:
-            activity_ids = _filter_activity_ids(
-                config["garmin_db_path"], activity_ids,
-                date_from=date_from, date_to=date_to,
-                user_ids_raw=user_ids_raw,
-            )
-            sequences = [s for s in sequences if s["activity_id"] in activity_ids]
+        activity_ids = _filter_activity_ids(
+            config["garmin_db_path"], activity_ids,
+            date_from=date_from, date_to=date_to,
+            user_ids_raw=user_ids_raw,
+        )
+        sequences = [s for s in sequences if s["activity_id"] in activity_ids]
+        filtered_count = len(sequences)
 
         if not sequences:
-            return jsonify({"segments": [], "max_count": 0})
+            return jsonify({"edges": [], "max_count": 0,
+                            "total_activities": total_in_category,
+                            "filtered_activities": 0})
 
-        # Compute overlaps — return individual cells, not grouped segments
+        # Compute overlaps
         overlaps = compute_overlaps(sequences, grid_m)
         if not overlaps:
-            return jsonify({"cells": [], "max_count": 0, "grid_m": grid_m})
+            return jsonify({"edges": [], "max_count": 0})
 
-        # Estimate reference latitude from first cell
-        first_cell = next(iter(overlaps.keys()))
-        ref_lat = cell_center(first_cell[0], first_cell[1], grid_m, 48.0)[0]
+        # Build a lookup: (row, col) -> original GPS coord per activity
+        # Each activity may have a different representative coord for the same cell
+        # We pick the first one we encounter per cell pair
+        cell_coords: dict[tuple[int, int], tuple[float, float]] = {}
+        for seq in sequences:
+            for entry in seq["grid_cells"]:
+                cell_key = (entry[0], entry[1])
+                if cell_key not in cell_coords and len(entry) >= 4:
+                    cell_coords[cell_key] = (entry[2], entry[3])
 
-        max_count = max(o["count"] for o in overlaps.values())
+        # Build line segments from consecutive overlapping cells along tracks
+        # using original GPS coordinates
+        edge_data = {}
+        for seq in sequences:
+            entries = seq["grid_cells"]
+            for i in range(len(entries) - 1):
+                a_key = (entries[i][0], entries[i][1])
+                b_key = (entries[i + 1][0], entries[i + 1][1])
+                if a_key in overlaps and b_key in overlaps:
+                    edge_key = (a_key, b_key) if a_key <= b_key else (b_key, a_key)
+                    count = min(overlaps[a_key]["count"], overlaps[b_key]["count"])
+                    aids = set(overlaps[a_key]["activity_ids"]) & set(overlaps[b_key]["activity_ids"])
+                    if edge_key not in edge_data or count > edge_data[edge_key]["count"]:
+                        # Use original GPS coords from this activity's track
+                        coord_a = (entries[i][2], entries[i][3]) if len(entries[i]) >= 4 else cell_coords.get(a_key, (0, 0))
+                        coord_b = (entries[i + 1][2], entries[i + 1][3]) if len(entries[i + 1]) >= 4 else cell_coords.get(b_key, (0, 0))
+                        edge_data[edge_key] = {
+                            "count": count,
+                            "activity_ids": sorted(aids),
+                            "coord_a": coord_a,
+                            "coord_b": coord_b,
+                        }
 
-        cell_list = []
-        for (r, c), info in overlaps.items():
-            lat, lon = cell_center(r, c, grid_m, ref_lat)
-            cell_list.append({
-                "lat": lat,
-                "lon": lon,
+        if not edge_data:
+            return jsonify({"edges": [], "max_count": 0,
+                            "total_activities": total_in_category,
+                            "filtered_activities": filtered_count})
+
+        max_count = max(e["count"] for e in edge_data.values())
+
+        edges = []
+        for (a_key, b_key), info in edge_data.items():
+            edges.append({
+                "coords": [list(info["coord_a"]), list(info["coord_b"])],
                 "count": info["count"],
                 "activity_ids": info["activity_ids"],
-                "cell": [r, c],
+                "cells": [list(a_key), list(b_key)],
             })
 
-        return jsonify({"cells": cell_list, "max_count": max_count, "grid_m": grid_m})
+        return jsonify({"edges": edges, "max_count": max_count,
+                        "total_activities": total_in_category,
+                        "filtered_activities": filtered_count})
 
     @app.route("/api/segment_info")
     def api_segment_info():
@@ -169,14 +208,23 @@ def create_app(config: dict | None = None) -> Flask:
 
     @app.route("/api/recompute", methods=["POST"])
     def api_recompute():
-        """Trigger a full recompute of all grid sequences."""
+        """Trigger a full recompute, streaming progress via SSE."""
         log.info("Recompute triggered via API")
-        try:
-            summary = recompute_all(config)
-        except Exception:
-            log.error("Recompute failed", exc_info=True)
-            return jsonify({"error": "Recompute failed. Check logs for details."}), 500
-        return jsonify(summary)
+
+        def generate():
+            import json as _json
+            try:
+                def on_progress(processed, skipped, total):
+                    data = {"processed": processed, "skipped": skipped, "total": total}
+                    yield f"data: {_json.dumps(data)}\n\n"
+
+                summary = recompute_all(config, on_progress=on_progress)
+                yield f"data: {_json.dumps({**summary, 'done': True})}\n\n"
+            except Exception:
+                log.error("Recompute failed", exc_info=True)
+                yield f"data: {_json.dumps({'error': 'Recompute failed. Check logs.'})}\n\n"
+
+        return Response(generate(), mimetype="text/event-stream")
 
     @app.route("/api/export_gpx", methods=["POST"])
     def api_export_gpx():

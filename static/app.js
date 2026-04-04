@@ -6,11 +6,10 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
 }).addTo(map);
 
-var cellLayers = L.layerGroup().addTo(map);
-var selectedCells = [];
-var cellData = [];
+var edgeLayers = L.layerGroup().addTo(map);
+var selectedEdges = [];
+var edgeData = [];
 var currentMaxCount = 0;
-var currentGridM = 20;
 
 // ---- Date helpers ----
 
@@ -70,37 +69,37 @@ function getSelectedUserIds() {
 }
 
 // ---- Color scale ----
+// 5-stop gradient: blue → cyan → green → yellow → orange → red
+// Uses logarithmic scaling so low-frequency segments spread out more
+
+var COLOR_STOPS = [
+    [41, 121, 255],    // blue
+    [0, 200, 200],     // cyan
+    [34, 197, 94],     // green
+    [250, 204, 21],    // yellow
+    [249, 115, 22],    // orange
+    [220, 38, 38],     // red
+];
 
 function countToColor(count, maxCount) {
-    if (maxCount <= 1) return "#22c55e";
-    var ratio = (count - 1) / (maxCount - 1);
-    var r, g, b;
-    if (ratio < 0.5) {
-        var t = ratio * 2;
-        r = Math.round(34 + (249 - 34) * t);
-        g = Math.round(197 + (115 - 197) * t);
-        b = Math.round(94 + (22 - 94) * t);
-    } else {
-        var t2 = (ratio - 0.5) * 2;
-        r = Math.round(249 + (220 - 249) * t2);
-        g = Math.round(115 + (38 - 115) * t2);
-        b = Math.round(22 + (38 - 22) * t2);
-    }
+    if (maxCount <= 1) return "rgb(41,121,255)";
+    // Logarithmic scale for better spread
+    var logCount = Math.log(count);
+    var logMax = Math.log(maxCount);
+    var ratio = logCount / logMax;
+    ratio = Math.max(0, Math.min(1, ratio));
+
+    // Map ratio to color stops
+    var pos = ratio * (COLOR_STOPS.length - 1);
+    var idx = Math.min(Math.floor(pos), COLOR_STOPS.length - 2);
+    var t = pos - idx;
+
+    var c0 = COLOR_STOPS[idx];
+    var c1 = COLOR_STOPS[idx + 1];
+    var r = Math.round(c0[0] + (c1[0] - c0[0]) * t);
+    var g = Math.round(c0[1] + (c1[1] - c0[1]) * t);
+    var b = Math.round(c0[2] + (c1[2] - c0[2]) * t);
     return "rgb(" + r + "," + g + "," + b + ")";
-}
-
-// ---- Grid cell to rectangle bounds ----
-
-function cellToBounds(lat, lon, gridM) {
-    // Half-cell offset in degrees
-    var mPerLat = 111320;
-    var mPerLon = 111320 * Math.cos(lat * Math.PI / 180);
-    var dLat = gridM / mPerLat / 2;
-    var dLon = gridM / mPerLon / 2;
-    return [
-        [lat - dLat, lon - dLon],
-        [lat + dLat, lon + dLon]
-    ];
 }
 
 // ---- Load segments ----
@@ -126,8 +125,9 @@ async function loadSegments() {
             throw new Error(err.error || "Server error");
         }
         var data = await resp.json();
-        renderCells(data);
-        setStatus("Loaded " + data.cells.length + " cells");
+        renderEdges(data);
+        showActivityStats(data);
+        setStatus("Loaded " + data.edges.length + " segments");
     } catch (err) {
         setStatus("Error: " + err.message, true);
     } finally {
@@ -135,97 +135,77 @@ async function loadSegments() {
     }
 }
 
-function renderCells(data) {
-    cellLayers.clearLayers();
-    selectedCells = [];
-    updateSelectionPanel();
-    cellData = data.cells;
-    currentGridM = data.grid_m || 20;
+function showActivityStats(data) {
+    var panel = document.getElementById("activity-stats");
+    document.getElementById("stats-filtered").textContent = data.filtered_activities || 0;
+    document.getElementById("stats-total").textContent = data.total_activities || 0;
+    panel.classList.remove("hidden");
+}
 
-    if (!data.cells.length) return;
+function renderEdges(data) {
+    edgeLayers.clearLayers();
+    selectedEdges = [];
+    updateSelectionPanel();
+    edgeData = data.edges;
+
+    if (!data.edges.length) return;
 
     var bounds = [];
 
-    data.cells.forEach(function (cell, idx) {
-        var rectBounds = cellToBounds(cell.lat, cell.lon, currentGridM);
+    currentMaxCount = data.max_count || 1;
 
-        var rect = L.rectangle(rectBounds, {
-            color: "#22c55e",
-            fillColor: "#22c55e",
-            fillOpacity: 0.6,
-            weight: 1.5,
+    data.edges.forEach(function (edge, idx) {
+        var latlngs = edge.coords.map(function (c) { return [c[0], c[1]]; });
+        var color = countToColor(edge.count, currentMaxCount);
+
+        var line = L.polyline(latlngs, {
+            color: color,
+            weight: 5,
             opacity: 0.8,
-            dashArray: "4 3",
+            lineCap: "round",
         });
 
-        rect._favIdx = idx;
-        rect._favSelected = false;
+        line._favIdx = idx;
+        line._favSelected = false;
 
-        rect.on("mouseover", function () {
-            showCellInfo(cell);
-            if (!rect._favSelected) {
-                rect.setStyle({ fillOpacity: 0.9, weight: 2.5 });
+        line.on("mouseover", function () {
+            showEdgeInfo(edge);
+            if (!line._favSelected) {
+                line.setStyle({ weight: 8, opacity: 1 });
             }
         });
 
-        rect.on("mouseout", function () {
-            if (!rect._favSelected) {
-                rect.setStyle({ fillOpacity: 0.6, weight: 1.5 });
+        line.on("mouseout", function () {
+            if (!line._favSelected) {
+                line.setStyle({ weight: 5, opacity: 0.8 });
             }
         });
 
-        rect.on("click", function () {
-            toggleCellSelection(rect, cell, idx);
+        line.on("click", function () {
+            toggleEdgeSelection(line, edge, idx);
         });
 
-        cellLayers.addLayer(rect);
-        bounds.push([cell.lat, cell.lon]);
+        edgeLayers.addLayer(line);
+        bounds.push(latlngs[0]);
+        bounds.push(latlngs[1]);
     });
 
     if (bounds.length > 0) {
         map.fitBounds(bounds, { padding: [20, 20] });
     }
-
-    // Initial coloring based on viewport
-    recolorByViewport();
-}
-
-function recolorByViewport() {
-    if (!cellData.length) return;
-
-    var mapBounds = map.getBounds();
-
-    // Find max count among cells visible in viewport
-    var viewportMax = 0;
-    cellLayers.eachLayer(function (layer) {
-        var cell = cellData[layer._favIdx];
-        if (mapBounds.contains([cell.lat, cell.lon])) {
-            if (cell.count > viewportMax) viewportMax = cell.count;
-        }
-    });
-
-    currentMaxCount = viewportMax || 1;
-
-    // Recolor all cells (including off-screen, so they're correct when scrolled into view)
-    cellLayers.eachLayer(function (layer) {
-        if (layer._favSelected) return;
-        var cell = cellData[layer._favIdx];
-        var color = countToColor(cell.count, currentMaxCount);
-        layer.setStyle({ color: color, fillColor: color });
-    });
 }
 
 // ---- Hover info ----
 
-async function showCellInfo(cell) {
+async function showEdgeInfo(edge) {
     var panel = document.getElementById("segment-info");
-    document.getElementById("info-count").textContent = cell.count;
+    document.getElementById("info-count").textContent = edge.count;
     document.getElementById("info-last-date").textContent = "...";
     document.getElementById("info-last-name").textContent = "...";
     panel.classList.remove("hidden");
 
     try {
-        var resp = await fetch("/api/segment_info?activity_ids=" + cell.activity_ids.join(","));
+        var resp = await fetch("/api/segment_info?activity_ids=" + edge.activity_ids.join(","));
         if (!resp.ok) return;
         var info = await resp.json();
         document.getElementById("info-last-date").textContent = formatDateDE(info.last_date);
@@ -237,22 +217,16 @@ async function showCellInfo(cell) {
 
 // ---- Selection ----
 
-function toggleCellSelection(rect, cell, idx) {
-    rect._favSelected = !rect._favSelected;
+function toggleEdgeSelection(line, edge, idx) {
+    line._favSelected = !line._favSelected;
 
-    if (rect._favSelected) {
-        rect.setStyle({ fillColor: "#3b82f6", color: "#3b82f6", fillOpacity: 0.8, weight: 2.5, dashArray: null });
-        selectedCells.push({ idx: idx, cell: cell });
+    if (line._favSelected) {
+        line.setStyle({ color: "#3b82f6", weight: 8, opacity: 1 });
+        selectedEdges.push({ idx: idx, edge: edge });
     } else {
-        var color = countToColor(cell.count, currentMaxCount);
-        rect.setStyle({
-            fillColor: color,
-            color: color,
-            fillOpacity: 0.6,
-            weight: 1.5,
-            dashArray: "4 3",
-        });
-        selectedCells = selectedCells.filter(function (s) { return s.idx !== idx; });
+        var color = countToColor(edge.count, currentMaxCount);
+        line.setStyle({ color: color, weight: 5, opacity: 0.8 });
+        selectedEdges = selectedEdges.filter(function (s) { return s.idx !== idx; });
     }
     updateSelectionPanel();
 }
@@ -260,49 +234,44 @@ function toggleCellSelection(rect, cell, idx) {
 function updateSelectionPanel() {
     var panel = document.getElementById("selection-panel");
     var countEl = document.getElementById("selection-count");
-    if (selectedCells.length > 0) {
+    if (selectedEdges.length > 0) {
         panel.classList.remove("hidden");
-        countEl.textContent = selectedCells.length;
+        countEl.textContent = selectedEdges.length;
     } else {
         panel.classList.add("hidden");
     }
 }
 
 function clearSelection() {
-    cellLayers.eachLayer(function (layer) {
+    edgeLayers.eachLayer(function (layer) {
         if (layer._favSelected) {
             layer._favSelected = false;
-            var cell = cellData[layer._favIdx];
-            var color = countToColor(cell.count, currentMaxCount);
-            layer.setStyle({
-                fillColor: color,
-                color: color,
-                fillOpacity: 0.6,
-                weight: 1.5,
-                dashArray: "4 3",
-            });
+            var edge = edgeData[layer._favIdx];
+            var color = countToColor(edge.count, currentMaxCount);
+            layer.setStyle({ color: color, weight: 5, opacity: 0.8 });
         }
     });
-    selectedCells = [];
+    selectedEdges = [];
     updateSelectionPanel();
 }
 
 // ---- GPX Export ----
 
 async function exportGpx() {
-    if (selectedCells.length === 0) return;
+    if (selectedEdges.length === 0) return;
 
     var category = document.getElementById("category").value;
     var multiSegment = document.getElementById("multi-segment").checked;
 
-    // Collect all unique activity_ids and cells from selected cells
     var allActivityIds = [];
     var allCellCoords = [];
-    selectedCells.forEach(function (s) {
-        s.cell.activity_ids.forEach(function (id) {
+    selectedEdges.forEach(function (s) {
+        s.edge.activity_ids.forEach(function (id) {
             if (allActivityIds.indexOf(id) === -1) allActivityIds.push(id);
         });
-        allCellCoords.push(s.cell.cell);
+        s.edge.cells.forEach(function (c) {
+            allCellCoords.push(c);
+        });
     });
 
     var body = {
@@ -340,30 +309,50 @@ async function exportGpx() {
 
 // ---- Recompute ----
 
-async function recompute() {
+function recompute() {
     if (!confirm("This will recompute all segments from scratch. Continue?")) return;
 
-    setStatus("Recomputing segments... this may take a while.");
     document.getElementById("btn-recompute").disabled = true;
+    setStatus("Recomputing: starting...");
 
-    try {
-        var resp = await fetch("/api/recompute", { method: "POST" });
-        if (!resp.ok) {
-            var err = await resp.json();
-            throw new Error(err.error || "Recompute failed");
+    fetch("/api/recompute", { method: "POST" }).then(function (resp) {
+        var reader = resp.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = "";
+
+        function read() {
+            reader.read().then(function (result) {
+                if (result.done) {
+                    document.getElementById("btn-recompute").disabled = false;
+                    return;
+                }
+                buffer += decoder.decode(result.value, { stream: true });
+                var lines = buffer.split("\n");
+                buffer = lines.pop();
+                lines.forEach(function (line) {
+                    if (line.startsWith("data: ")) {
+                        try {
+                            var data = JSON.parse(line.substring(6));
+                            if (data.error) {
+                                setStatus("Recompute error: " + data.error, true);
+                            } else if (data.done) {
+                                setStatus("Recompute done: " + data.processed + " processed, " + data.skipped + " skipped");
+                            } else {
+                                var done = data.processed + data.skipped;
+                                setStatus("Recomputing: " + done + " / " + data.total + " (" + data.processed + " processed, " + data.skipped + " skipped)");
+                            }
+                        } catch (_) {}
+                    }
+                });
+                read();
+            });
         }
-        var summary = await resp.json();
-        setStatus("Recompute done: " + summary.processed + " processed, " + summary.skipped + " skipped");
-    } catch (err) {
+        read();
+    }).catch(function (err) {
         setStatus("Recompute error: " + err.message, true);
-    } finally {
         document.getElementById("btn-recompute").disabled = false;
-    }
+    });
 }
-
-// ---- Recolor on pan/zoom ----
-
-map.on("moveend", recolorByViewport);
 
 // ---- Init ----
 

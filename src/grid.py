@@ -35,21 +35,34 @@ def snap_point(lat: float, lon: float, grid_m: float) -> tuple[int, int]:
     return (row, col)
 
 
-def snap_track(points: list[tuple[float, float]], grid_m: float) -> list[tuple[int, int]]:
+def snap_track(points: list[tuple[float, float]], grid_m: float) -> list[list]:
     """Snap a list of (lat, lon) points to grid cells, removing consecutive duplicates.
 
-    Returns a list of (row, col) cell coordinates representing the path through
-    the grid. Consecutive duplicate cells are collapsed so that a straight road
-    within one cell doesn't produce many identical entries.
+    Returns a list of [row, col, lat, lon] entries. The lat/lon is a representative
+    original GPS coordinate for that cell (average of all points that mapped to it).
+    Consecutive duplicate cells are collapsed.
     """
-    cells = []
+    # First pass: group original points by cell, preserving order
+    cell_order = []
+    cell_points: dict[tuple[int, int], list[tuple[float, float]]] = {}
     prev = None
     for lat, lon in points:
         cell = snap_point(lat, lon, grid_m)
+        if cell not in cell_points:
+            cell_points[cell] = []
+        cell_points[cell].append((lat, lon))
         if cell != prev:
-            cells.append(cell)
+            cell_order.append(cell)
             prev = cell
-    return cells
+
+    # Build result with average original coordinate per cell
+    result = []
+    for cell in cell_order:
+        pts = cell_points[cell]
+        avg_lat = sum(p[0] for p in pts) / len(pts)
+        avg_lon = sum(p[1] for p in pts) / len(pts)
+        result.append([cell[0], cell[1], round(avg_lat, 6), round(avg_lon, 6)])
+    return result
 
 
 def cell_center(row: int, col: int, grid_m: float, ref_lat: float) -> tuple[float, float]:
@@ -70,7 +83,7 @@ def compute_overlaps(sequences: list[dict], grid_m: float) -> dict:
     """Compute segment overlaps from precomputed grid sequences.
 
     sequences: list of dicts with keys 'activity_id', 'grid_cells'
-               where grid_cells is a list of (row, col) tuples.
+               where grid_cells entries are [row, col, lat, lon].
 
     Returns a dict mapping (row, col) -> {
         'count': int,
@@ -83,7 +96,7 @@ def compute_overlaps(sequences: list[dict], grid_m: float) -> dict:
         activity_id = seq["activity_id"]
         seen_in_activity: set[tuple[int, int]] = set()
         for cell in seq["grid_cells"]:
-            cell_t = tuple(cell)
+            cell_t = (cell[0], cell[1])
             if cell_t not in seen_in_activity:
                 seen_in_activity.add(cell_t)
                 if cell_t not in cell_usage:

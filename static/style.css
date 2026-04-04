@@ -83,6 +83,13 @@ select, input[type="date"] {
     font-style: italic;
 }
 
+.activity-stats {
+    font-size: 13px;
+    font-weight: 600;
+    color: #555;
+    padding: 4px 0;
+}
+
 .btn {
     padding: 8px 12px;
     border: none;
