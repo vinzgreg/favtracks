@@ -1,19 +1,40 @@
 "use strict";
 
-const map = L.map("map").setView([48.2, 11.8], 10);
+var map = L.map("map").setView([48.2, 11.8], 10);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "&copy; OpenStreetMap contributors",
     maxZoom: 19,
 }).addTo(map);
 
-const segmentLayers = L.layerGroup().addTo(map);
-let selectedSegments = [];
-let segmentData = [];
+var cellLayers = L.layerGroup().addTo(map);
+var selectedCells = [];
+var cellData = [];
+var currentMaxCount = 0;
+var currentGridM = 20;
+
+// ---- Date helpers ----
+
+function formatDateDE(isoStr) {
+    if (!isoStr) return "-";
+    var d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    var day = String(d.getDate()).padStart(2, "0");
+    var month = String(d.getMonth() + 1).padStart(2, "0");
+    var year = d.getFullYear();
+    return day + "." + month + "." + year;
+}
+
+function initDateInputs() {
+    var now = new Date();
+    var year = now.getFullYear();
+    document.getElementById("date-from").value = year + "-01-01";
+    document.getElementById("date-to").value = year + "-12-31";
+}
 
 // ---- Status bar ----
 
 function setStatus(msg, isError) {
-    const bar = document.getElementById("status-bar");
+    var bar = document.getElementById("status-bar");
     bar.textContent = msg;
     bar.classList.toggle("error", !!isError);
 }
@@ -21,15 +42,15 @@ function setStatus(msg, isError) {
 // ---- Users ----
 
 async function loadUsers() {
-    const container = document.getElementById("user-list");
+    var container = document.getElementById("user-list");
     try {
-        const resp = await fetch("/api/users");
+        var resp = await fetch("/api/users");
         if (!resp.ok) throw new Error(await resp.text());
-        const users = await resp.json();
+        var users = await resp.json();
         container.innerHTML = "";
         users.forEach(function (u) {
-            const label = document.createElement("label");
-            const cb = document.createElement("input");
+            var label = document.createElement("label");
+            var cb = document.createElement("input");
             cb.type = "checkbox";
             cb.value = u.id;
             cb.checked = true;
@@ -44,7 +65,7 @@ async function loadUsers() {
 }
 
 function getSelectedUserIds() {
-    const checkboxes = document.querySelectorAll("#user-list input:checked");
+    var checkboxes = document.querySelectorAll("#user-list input:checked");
     return Array.from(checkboxes).map(function (cb) { return cb.value; });
 }
 
@@ -52,32 +73,45 @@ function getSelectedUserIds() {
 
 function countToColor(count, maxCount) {
     if (maxCount <= 1) return "#22c55e";
-    const ratio = (count - 1) / (maxCount - 1);
-    // green(0) -> orange(0.5) -> red(1)
-    let r, g, b;
+    var ratio = (count - 1) / (maxCount - 1);
+    var r, g, b;
     if (ratio < 0.5) {
-        const t = ratio * 2;
+        var t = ratio * 2;
         r = Math.round(34 + (249 - 34) * t);
         g = Math.round(197 + (115 - 197) * t);
         b = Math.round(94 + (22 - 94) * t);
     } else {
-        const t = (ratio - 0.5) * 2;
-        r = Math.round(249 + (220 - 249) * t);
-        g = Math.round(115 + (38 - 115) * t);
-        b = Math.round(22 + (38 - 22) * t);
+        var t2 = (ratio - 0.5) * 2;
+        r = Math.round(249 + (220 - 249) * t2);
+        g = Math.round(115 + (38 - 115) * t2);
+        b = Math.round(22 + (38 - 22) * t2);
     }
     return "rgb(" + r + "," + g + "," + b + ")";
+}
+
+// ---- Grid cell to rectangle bounds ----
+
+function cellToBounds(lat, lon, gridM) {
+    // Half-cell offset in degrees
+    var mPerLat = 111320;
+    var mPerLon = 111320 * Math.cos(lat * Math.PI / 180);
+    var dLat = gridM / mPerLat / 2;
+    var dLon = gridM / mPerLon / 2;
+    return [
+        [lat - dLat, lon - dLon],
+        [lat + dLat, lon + dLon]
+    ];
 }
 
 // ---- Load segments ----
 
 async function loadSegments() {
-    const category = document.getElementById("category").value;
-    const dateFrom = document.getElementById("date-from").value;
-    const dateTo = document.getElementById("date-to").value;
-    const userIds = getSelectedUserIds();
+    var category = document.getElementById("category").value;
+    var dateFrom = document.getElementById("date-from").value;
+    var dateTo = document.getElementById("date-to").value;
+    var userIds = getSelectedUserIds();
 
-    const params = new URLSearchParams({ category: category });
+    var params = new URLSearchParams({ category: category });
     if (dateFrom) params.set("date_from", dateFrom);
     if (dateTo) params.set("date_to", dateTo);
     if (userIds.length > 0) params.set("user_ids", userIds.join(","));
@@ -86,14 +120,14 @@ async function loadSegments() {
     document.getElementById("btn-load").disabled = true;
 
     try {
-        const resp = await fetch("/api/segments?" + params.toString());
+        var resp = await fetch("/api/segments?" + params.toString());
         if (!resp.ok) {
-            const err = await resp.json();
+            var err = await resp.json();
             throw new Error(err.error || "Server error");
         }
-        const data = await resp.json();
-        renderSegments(data, category);
-        setStatus("Loaded " + data.segments.length + " segments");
+        var data = await resp.json();
+        renderCells(data);
+        setStatus("Loaded " + data.cells.length + " cells");
     } catch (err) {
         setStatus("Error: " + err.message, true);
     } finally {
@@ -101,67 +135,100 @@ async function loadSegments() {
     }
 }
 
-function renderSegments(data, category) {
-    segmentLayers.clearLayers();
-    selectedSegments = [];
+function renderCells(data) {
+    cellLayers.clearLayers();
+    selectedCells = [];
     updateSelectionPanel();
-    segmentData = data.segments;
+    cellData = data.cells;
+    currentGridM = data.grid_m || 20;
 
-    if (!data.segments.length) return;
+    if (!data.cells.length) return;
 
-    const bounds = [];
+    var bounds = [];
 
-    data.segments.forEach(function (seg, idx) {
-        const latlngs = seg.coords.map(function (c) { return [c[0], c[1]]; });
-        const color = countToColor(seg.count, data.max_count);
+    data.cells.forEach(function (cell, idx) {
+        var rectBounds = cellToBounds(cell.lat, cell.lon, currentGridM);
 
-        const polyline = L.polyline(latlngs, {
-            color: color,
-            weight: 5,
+        var rect = L.rectangle(rectBounds, {
+            color: "#22c55e",
+            fillColor: "#22c55e",
+            fillOpacity: 0.6,
+            weight: 1.5,
             opacity: 0.8,
+            dashArray: "4 3",
         });
 
-        polyline._favIdx = idx;
-        polyline._favSelected = false;
+        rect._favIdx = idx;
+        rect._favSelected = false;
 
-        polyline.on("mouseover", function () {
-            showSegmentInfo(seg);
-            if (!polyline._favSelected) {
-                polyline.setStyle({ weight: 8, opacity: 1 });
+        rect.on("mouseover", function () {
+            showCellInfo(cell);
+            if (!rect._favSelected) {
+                rect.setStyle({ fillOpacity: 0.9, weight: 2.5 });
             }
         });
 
-        polyline.on("mouseout", function () {
-            if (!polyline._favSelected) {
-                polyline.setStyle({ weight: 5, opacity: 0.8 });
+        rect.on("mouseout", function () {
+            if (!rect._favSelected) {
+                rect.setStyle({ fillOpacity: 0.6, weight: 1.5 });
             }
         });
 
-        polyline.on("click", function () {
-            toggleSegmentSelection(polyline, seg, idx);
+        rect.on("click", function () {
+            toggleCellSelection(rect, cell, idx);
         });
 
-        segmentLayers.addLayer(polyline);
-        bounds.push.apply(bounds, latlngs);
+        cellLayers.addLayer(rect);
+        bounds.push([cell.lat, cell.lon]);
     });
 
     if (bounds.length > 0) {
         map.fitBounds(bounds, { padding: [20, 20] });
     }
+
+    // Initial coloring based on viewport
+    recolorByViewport();
+}
+
+function recolorByViewport() {
+    if (!cellData.length) return;
+
+    var mapBounds = map.getBounds();
+
+    // Find max count among cells visible in viewport
+    var viewportMax = 0;
+    cellLayers.eachLayer(function (layer) {
+        var cell = cellData[layer._favIdx];
+        if (mapBounds.contains([cell.lat, cell.lon])) {
+            if (cell.count > viewportMax) viewportMax = cell.count;
+        }
+    });
+
+    currentMaxCount = viewportMax || 1;
+
+    // Recolor all cells (including off-screen, so they're correct when scrolled into view)
+    cellLayers.eachLayer(function (layer) {
+        if (layer._favSelected) return;
+        var cell = cellData[layer._favIdx];
+        var color = countToColor(cell.count, currentMaxCount);
+        layer.setStyle({ color: color, fillColor: color });
+    });
 }
 
 // ---- Hover info ----
 
-async function showSegmentInfo(seg) {
-    const panel = document.getElementById("segment-info");
-    document.getElementById("info-count").textContent = seg.count;
+async function showCellInfo(cell) {
+    var panel = document.getElementById("segment-info");
+    document.getElementById("info-count").textContent = cell.count;
+    document.getElementById("info-last-date").textContent = "...";
+    document.getElementById("info-last-name").textContent = "...";
     panel.classList.remove("hidden");
 
     try {
-        const resp = await fetch("/api/segment_info?activity_ids=" + seg.activity_ids.join(","));
+        var resp = await fetch("/api/segment_info?activity_ids=" + cell.activity_ids.join(","));
         if (!resp.ok) return;
-        const info = await resp.json();
-        document.getElementById("info-last-date").textContent = info.last_date || "-";
+        var info = await resp.json();
+        document.getElementById("info-last-date").textContent = formatDateDE(info.last_date);
         document.getElementById("info-last-name").textContent = info.last_name || "-";
     } catch (_) {
         // silently ignore hover fetch errors
@@ -170,89 +237,97 @@ async function showSegmentInfo(seg) {
 
 // ---- Selection ----
 
-function toggleSegmentSelection(polyline, seg, idx) {
-    polyline._favSelected = !polyline._favSelected;
+function toggleCellSelection(rect, cell, idx) {
+    rect._favSelected = !rect._favSelected;
 
-    if (polyline._favSelected) {
-        polyline.setStyle({ weight: 8, opacity: 1, color: "#3b82f6", dashArray: "8 4" });
-        selectedSegments.push({ idx: idx, seg: seg });
+    if (rect._favSelected) {
+        rect.setStyle({ fillColor: "#3b82f6", color: "#3b82f6", fillOpacity: 0.8, weight: 2.5, dashArray: null });
+        selectedCells.push({ idx: idx, cell: cell });
     } else {
-        const maxCount = segmentData.length > 0
-            ? Math.max.apply(null, segmentData.map(function (s) { return s.count; }))
-            : 1;
-        polyline.setStyle({
-            weight: 5,
-            opacity: 0.8,
-            color: countToColor(seg.count, maxCount),
-            dashArray: null,
+        var color = countToColor(cell.count, currentMaxCount);
+        rect.setStyle({
+            fillColor: color,
+            color: color,
+            fillOpacity: 0.6,
+            weight: 1.5,
+            dashArray: "4 3",
         });
-        selectedSegments = selectedSegments.filter(function (s) { return s.idx !== idx; });
+        selectedCells = selectedCells.filter(function (s) { return s.idx !== idx; });
     }
     updateSelectionPanel();
 }
 
 function updateSelectionPanel() {
-    const panel = document.getElementById("selection-panel");
-    const countEl = document.getElementById("selection-count");
-    if (selectedSegments.length > 0) {
+    var panel = document.getElementById("selection-panel");
+    var countEl = document.getElementById("selection-count");
+    if (selectedCells.length > 0) {
         panel.classList.remove("hidden");
-        countEl.textContent = selectedSegments.length;
+        countEl.textContent = selectedCells.length;
     } else {
         panel.classList.add("hidden");
     }
 }
 
 function clearSelection() {
-    segmentLayers.eachLayer(function (layer) {
+    cellLayers.eachLayer(function (layer) {
         if (layer._favSelected) {
             layer._favSelected = false;
-            const seg = segmentData[layer._favIdx];
-            const maxCount = Math.max.apply(null, segmentData.map(function (s) { return s.count; }));
+            var cell = cellData[layer._favIdx];
+            var color = countToColor(cell.count, currentMaxCount);
             layer.setStyle({
-                weight: 5,
-                opacity: 0.8,
-                color: countToColor(seg.count, maxCount),
-                dashArray: null,
+                fillColor: color,
+                color: color,
+                fillOpacity: 0.6,
+                weight: 1.5,
+                dashArray: "4 3",
             });
         }
     });
-    selectedSegments = [];
+    selectedCells = [];
     updateSelectionPanel();
 }
 
 // ---- GPX Export ----
 
 async function exportGpx() {
-    if (selectedSegments.length === 0) return;
+    if (selectedCells.length === 0) return;
 
-    const category = document.getElementById("category").value;
-    const multiSegment = document.getElementById("multi-segment").checked;
+    var category = document.getElementById("category").value;
+    var multiSegment = document.getElementById("multi-segment").checked;
 
-    const body = {
+    // Collect all unique activity_ids and cells from selected cells
+    var allActivityIds = [];
+    var allCellCoords = [];
+    selectedCells.forEach(function (s) {
+        s.cell.activity_ids.forEach(function (id) {
+            if (allActivityIds.indexOf(id) === -1) allActivityIds.push(id);
+        });
+        allCellCoords.push(s.cell.cell);
+    });
+
+    var body = {
         category: category,
         multi_segment: multiSegment,
-        segments: selectedSegments.map(function (s) {
-            return {
-                activity_ids: s.seg.activity_ids,
-                cells: s.seg.cells,
-            };
-        }),
+        segments: [{
+            activity_ids: allActivityIds,
+            cells: allCellCoords,
+        }],
     };
 
     setStatus("Exporting GPX...");
     try {
-        const resp = await fetch("/api/export_gpx", {
+        var resp = await fetch("/api/export_gpx", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
         });
         if (!resp.ok) {
-            const err = await resp.json();
+            var err = await resp.json();
             throw new Error(err.error || "Export failed");
         }
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
+        var blob = await resp.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
         a.href = url;
         a.download = "favtracks_export.gpx";
         a.click();
@@ -272,12 +347,12 @@ async function recompute() {
     document.getElementById("btn-recompute").disabled = true;
 
     try {
-        const resp = await fetch("/api/recompute", { method: "POST" });
+        var resp = await fetch("/api/recompute", { method: "POST" });
         if (!resp.ok) {
-            const err = await resp.json();
+            var err = await resp.json();
             throw new Error(err.error || "Recompute failed");
         }
-        const summary = await resp.json();
+        var summary = await resp.json();
         setStatus("Recompute done: " + summary.processed + " processed, " + summary.skipped + " skipped");
     } catch (err) {
         setStatus("Recompute error: " + err.message, true);
@@ -286,6 +361,10 @@ async function recompute() {
     }
 }
 
+// ---- Recolor on pan/zoom ----
+
+map.on("moveend", recolorByViewport);
+
 // ---- Init ----
 
 document.getElementById("btn-load").addEventListener("click", loadSegments);
@@ -293,4 +372,5 @@ document.getElementById("btn-export").addEventListener("click", exportGpx);
 document.getElementById("btn-clear-selection").addEventListener("click", clearSelection);
 document.getElementById("btn-recompute").addEventListener("click", recompute);
 
+initDateInputs();
 loadUsers();

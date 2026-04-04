@@ -93,12 +93,10 @@ def create_app(config: dict | None = None) -> Flask:
         if not sequences:
             return jsonify({"segments": [], "max_count": 0})
 
-        # Compute overlaps and group into segments
+        # Compute overlaps — return individual cells, not grouped segments
         overlaps = compute_overlaps(sequences, grid_m)
         if not overlaps:
-            return jsonify({"segments": [], "max_count": 0})
-
-        grouped = group_into_segments(overlaps, grid_m)
+            return jsonify({"cells": [], "max_count": 0, "grid_m": grid_m})
 
         # Estimate reference latitude from first cell
         first_cell = next(iter(overlaps.keys()))
@@ -106,23 +104,18 @@ def create_app(config: dict | None = None) -> Flask:
 
         max_count = max(o["count"] for o in overlaps.values())
 
-        segment_list = []
-        for seg_cells in grouped:
-            coords = [cell_center(r, c, grid_m, ref_lat) for r, c in seg_cells]
-            counts = [overlaps[(r, c)]["count"] for r, c in seg_cells]
-            seg_activity_ids = set()
-            for r, c in seg_cells:
-                seg_activity_ids.update(overlaps[(r, c)]["activity_ids"])
-            avg_count = sum(counts) / len(counts) if counts else 0
-
-            segment_list.append({
-                "coords": coords,
-                "count": round(avg_count, 1),
-                "activity_ids": sorted(seg_activity_ids),
-                "cells": seg_cells,
+        cell_list = []
+        for (r, c), info in overlaps.items():
+            lat, lon = cell_center(r, c, grid_m, ref_lat)
+            cell_list.append({
+                "lat": lat,
+                "lon": lon,
+                "count": info["count"],
+                "activity_ids": info["activity_ids"],
+                "cell": [r, c],
             })
 
-        return jsonify({"segments": segment_list, "max_count": max_count})
+        return jsonify({"cells": cell_list, "max_count": max_count, "grid_m": grid_m})
 
     @app.route("/api/segment_info")
     def api_segment_info():
