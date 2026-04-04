@@ -1,0 +1,32 @@
+# FavTracks configuration
+# Copy to config.toml and adjust paths before running.
+
+[storage]
+# Paths below refer to the container filesystem.
+# In docker-compose.yml a host directory (e.g. ~/data/favtracks) is mounted
+# to /data inside the container, so "/data/..." maps to that host folder.
+
+# Path to the garmin_nostra SQLite database (read-only access)
+garmin_db_path = "/data/garmin_nostra.db"
+
+# Path to the favtracks SQLite database (created automatically)
+favtracks_db_path = "/data/favtracks.db"
+
+# Directory containing GPX files (only needed if gpx_path in activities
+# table uses relative paths; otherwise derived from the DB)
+# gpx_base_dir = "/data/gpx"
+
+[detection]
+# Grid cell size in meters for segment snapping
+# Running activities use a tighter grid; cycling uses a wider one
+running_grid_m = 20
+cycling_grid_m = 50
+
+[logging]
+# Log level: DEBUG, INFO, WARNING, ERROR (default: INFO)
+level = "INFO"
+
+[server]
+# Flask server bind address and port
+host = "0.0.0.0"
+port = 5000

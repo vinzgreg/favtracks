@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FavTracks</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div id="sidebar">
+        <h1>FavTracks</h1>
+
+        <div class="control-group">
+            <label for="category">Activity type</label>
+            <select id="category">
+                <option value="running">Running</option>
+                <option value="cycling">Cycling</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="date-from">Date range</label>
+            <div class="date-row">
+                <input type="date" id="date-from" placeholder="From">
+                <input type="date" id="date-to" placeholder="To">
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Users</label>
+            <div id="user-list" class="user-list">
+                <span class="loading">Loading users...</span>
+            </div>
+        </div>
+
+        <button id="btn-load" class="btn btn-primary">Load segments</button>
+
+        <div id="segment-info" class="segment-info hidden">
+            <h3>Segment info</h3>
+            <p><strong>Usage:</strong> <span id="info-count"></span> times</p>
+            <p><strong>Last activity:</strong> <span id="info-last-date"></span></p>
+            <p><strong>Name:</strong> <span id="info-last-name"></span></p>
+        </div>
+
+        <div id="selection-panel" class="selection-panel hidden">
+            <h3>Selected segments: <span id="selection-count">0</span></h3>
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="multi-segment"> Multi-segment GPX
+                </label>
+            </div>
+            <button id="btn-export" class="btn btn-secondary">Export GPX</button>
+            <button id="btn-clear-selection" class="btn btn-secondary">Clear selection</button>
+        </div>
+
+        <hr>
+        <button id="btn-recompute" class="btn btn-danger">Recompute segments</button>
+        <div id="status-bar" class="status-bar"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
