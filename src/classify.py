@@ -5,10 +5,10 @@ import logging
 log = logging.getLogger("favtracks.classify")
 
 _RUNNING_KEYWORDS = {"running", "lauf", "run", "trail_running", "trail"}
-_CYCLING_KEYWORDS = {"cycling", "fahrrad", "bike", "biking", "mountain_biking",
-                     "gravel", "road_biking", "road_cycling", "mountain_bike",
-                     "gravel_cycling"}
-_EXCLUDE_KEYWORDS = {"indoor"}
+_CYCLING_KEYWORDS = {"cycling", "fahrrad", "radfahrt", "bike", "biking",
+                     "mountain_biking", "gravel", "road_biking", "road_cycling",
+                     "mountain_bike", "gravel_cycling", "e_bike", "e-bike"}
+_EXCLUDE_KEYWORDS = {"indoor", "virtuell", "virtual"}
 
 
 def classify_activity(activity_type: str | None) -> str | None:

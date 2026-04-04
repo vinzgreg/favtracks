@@ -5,7 +5,7 @@ echo "FavTracks starting..."
 
 # Run incremental computation on startup to pick up new activities
 echo "Running incremental segment computation..."
-python3 -m favtracks incremental
+python3 /app/__main__.py incremental
 
 echo "Starting web server..."
-exec python3 -m favtracks serve
+exec python3 /app/__main__.py serve
