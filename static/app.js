@@ -173,9 +173,9 @@ function renderTracks(tracks) {
     tracks.forEach(function (track) {
         var latlngs = track.coords.map(function (c) { return [c[0], c[1]]; });
         L.polyline(latlngs, {
-            color: "#94a3b8",
+            color: "#1565c0",
             weight: 4,
-            opacity: 0.6,
+            opacity: 0.75,
             dashArray: "6 5",
             lineCap: "round",
             lineJoin: "round",
