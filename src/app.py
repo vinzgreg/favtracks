@@ -40,7 +40,7 @@ def create_app(config: dict | None = None) -> Flask:
         """Return list of users from garmin_nostra DB."""
         try:
             conn = sqlite3.connect(
-                f"file:{config['garmin_db_path']}?mode=ro", uri=True, timeout=10
+                f"file:{config['garmin_db_path']}?mode=ro&immutable=1", uri=True, timeout=10
             )
             conn.row_factory = sqlite3.Row
             rows = conn.execute("SELECT id, name FROM users ORDER BY name").fetchall()
@@ -231,7 +231,7 @@ def create_app(config: dict | None = None) -> Flask:
 
         try:
             conn = sqlite3.connect(
-                f"file:{config['garmin_db_path']}?mode=ro", uri=True, timeout=10
+                f"file:{config['garmin_db_path']}?mode=ro&immutable=1", uri=True, timeout=10
             )
             conn.row_factory = sqlite3.Row
             placeholders = ",".join("?" for _ in activity_ids)
@@ -307,7 +307,7 @@ def create_app(config: dict | None = None) -> Flask:
 
         try:
             conn = sqlite3.connect(
-                f"file:{config['garmin_db_path']}?mode=ro", uri=True, timeout=10
+                f"file:{config['garmin_db_path']}?mode=ro&immutable=1", uri=True, timeout=10
             )
             conn.row_factory = sqlite3.Row
             placeholders = ",".join("?" for _ in all_activity_ids)
@@ -401,7 +401,7 @@ def _filter_activity_ids(garmin_db_path: str, activity_ids: set[int],
         rows = conn.execute(f"SELECT id FROM activities WHERE {where}", params).fetchall()
         conn.close()
     except sqlite3.OperationalError:
-        log.error("Cannot filter activities from garmin_nostra DB")
-        return activity_ids
+        log.error("Cannot filter activities from garmin_nostra DB", exc_info=True)
+        return set()
 
     return {r["id"] for r in rows}
