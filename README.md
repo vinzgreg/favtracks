@@ -41,7 +41,13 @@ and highlights route segments by usage frequency — red for heavily used, green
    Paths are inside the container. The `docker-compose.yml` mounts `~/data/favtracks`
    to `/data`, so place or symlink your `garmin_nostra.db` and GPX directory there.
 
-3. **Start the container**
+3. **Create the data directory** before Docker does (Docker creates missing host dirs as root, which breaks write access for the container's non-root user):
+
+   ```bash
+   mkdir -p ~/data/favtracks
+   ```
+
+4. **Start the container**
 
    ```bash
    docker compose up --build
@@ -50,7 +56,7 @@ and highlights route segments by usage frequency — red for heavily used, green
    On first start, FavTracks will scan all GPX files and precompute grid sequences.
    With ~2000 activities this takes a few minutes.
 
-4. **Open the app** at [http://localhost:5055](http://localhost:5055)
+5. **Open the app** at [http://localhost:5055](http://localhost:5055)
 
 ## Configuration
 
@@ -91,8 +97,9 @@ The entrypoint runs `incremental` automatically on every container start, then l
 The `docker-compose.yml` binds to `127.0.0.1:5055` on the host. To change the port,
 edit the `ports` line in `docker-compose.yml`.
 
-The container runs as non-root user (UID 1000). Make sure the mounted data directory
-is readable by this UID.
+The container runs as non-root user (UID 1000). Create `~/data/favtracks` yourself
+before running `docker compose up` — if Docker creates it, it will be owned by root
+and the container will not be able to write `favtracks.db`.
 
 ## Project structure
 
