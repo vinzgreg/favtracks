@@ -15,7 +15,7 @@ log = logging.getLogger("favtracks.compute")
 
 def _open_garmin_db(path: str) -> sqlite3.Connection:
     try:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+        conn = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True, timeout=10)
     except sqlite3.OperationalError:
         log.error("Cannot open garmin_nostra DB at '%s'. Check the path in config.toml.", path)
         raise
