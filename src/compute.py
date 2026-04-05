@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 from src.classify import classify_activity
+from src.fit_parse import parse_fit
 from src.gpx_parse import parse_gpx
 from src.grid import snap_track
 from src.storage import FavTracksStore
@@ -24,8 +25,9 @@ def _open_garmin_db(path: str) -> sqlite3.Connection:
 
 def _fetch_activities(garmin_conn: sqlite3.Connection) -> list[dict]:
     rows = garmin_conn.execute(
-        "SELECT id, activity_type, gpx_path FROM activities "
-        "WHERE gpx_path IS NOT NULL AND gpx_path != ''"
+        "SELECT id, activity_type, gpx_path, fit_path FROM activities "
+        "WHERE (gpx_path IS NOT NULL AND gpx_path != '') "
+        "   OR (fit_path IS NOT NULL AND fit_path != '')"
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -87,11 +89,21 @@ def _compute(config: dict, store: FavTracksStore, incremental: bool,
             continue
 
         grid_m = config["running_grid_m"] if category == "running" else config["cycling_grid_m"]
-        points = parse_gpx(act["gpx_path"], config.get("gpx_base_dir"))
+        base_dir = config.get("gpx_base_dir")
+
+        points = []
+        if act.get("gpx_path"):
+            points = parse_gpx(act["gpx_path"], base_dir)
+            if not points:
+                log.debug("No points from GPX for activity %d, trying FIT", act["id"])
+
+        if not points and act.get("fit_path"):
+            log.info("Falling back to FIT file for activity %d (%s)", act["id"], act["fit_path"])
+            points = parse_fit(act["fit_path"], base_dir)
 
         if not points:
-            log.warning("No points in GPX for activity %d (%s), skipping",
-                        act["id"], act["gpx_path"])
+            log.warning("No track points found for activity %d (gpx=%s, fit=%s), skipping",
+                        act["id"], act.get("gpx_path"), act.get("fit_path"))
             skipped += 1
             if on_progress:
                 on_progress(processed, skipped, total)

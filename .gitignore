@@ -4,4 +4,9 @@ __pycache__/
 .env
 config.toml
 *.db
+*.gpx
+*.fit
+*.fit.gz
 .venv/
+issues.md
+missing_gpx_ids.txt

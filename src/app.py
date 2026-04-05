@@ -170,6 +170,49 @@ def create_app(config: dict | None = None) -> Flask:
                         "total_activities": total_in_category,
                         "filtered_activities": filtered_count})
 
+    @app.route("/api/tracks")
+    def api_tracks():
+        """Return full track polylines for all filtered activities.
+
+        Same query params as /api/segments. Returns simplified tracks
+        built from stored grid cell coordinates (no GPX re-reads).
+        """
+        category = request.args.get("category")
+        if category not in ("running", "cycling"):
+            return jsonify({"error": "Parameter 'category' must be 'running' or 'cycling'."}), 400
+
+        date_from = request.args.get("date_from")
+        date_to = request.args.get("date_to")
+        user_ids_raw = request.args.get("user_ids")
+
+        store = FavTracksStore(config["favtracks_db_path"])
+        try:
+            sequences = store.get_all_sequences(category=category)
+        finally:
+            store.close()
+
+        if not sequences:
+            return jsonify({"tracks": []})
+
+        activity_ids = {s["activity_id"] for s in sequences}
+        activity_ids = _filter_activity_ids(
+            config["garmin_db_path"], activity_ids,
+            date_from=date_from, date_to=date_to,
+            user_ids_raw=user_ids_raw,
+        )
+        sequences = [s for s in sequences if s["activity_id"] in activity_ids]
+
+        tracks = []
+        for seq in sequences:
+            coords = [
+                [e[2], e[3]] for e in seq["grid_cells"] if len(e) >= 4
+            ]
+            if len(coords) >= 2:
+                tracks.append({"activity_id": seq["activity_id"], "coords": coords})
+
+        log.debug("Returning %d full tracks for category=%s", len(tracks), category)
+        return jsonify({"tracks": tracks})
+
     @app.route("/api/segment_info")
     def api_segment_info():
         """Return details for a specific segment's activities.

@@ -6,10 +6,15 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
 }).addTo(map);
 
-var edgeLayers = L.layerGroup().addTo(map);
+var trackLayers = L.layerGroup().addTo(map);   // grey base tracks
+var edgeLayers = L.layerGroup().addTo(map);    // colored frequency overlay
 var selectedEdges = [];
 var edgeData = [];
 var currentMaxCount = 0;
+
+// ISO dates for API calls, kept in sync by flatpickr
+var dateFromISO = "";
+var dateToISO = "";
 
 // ---- Date helpers ----
 
@@ -26,8 +31,30 @@ function formatDateDE(isoStr) {
 function initDateInputs() {
     var now = new Date();
     var year = now.getFullYear();
-    document.getElementById("date-from").value = year + "-01-01";
-    document.getElementById("date-to").value = year + "-12-31";
+    dateFromISO = year + "-01-01";
+    dateToISO   = year + "-12-31";
+
+    flatpickr("#date-from", {
+        locale: "de",
+        dateFormat: "d.m.Y",
+        defaultDate: dateFromISO,
+        onChange: function (selectedDates, dateStr, instance) {
+            if (selectedDates[0]) {
+                dateFromISO = selectedDates[0].toISOString().slice(0, 10);
+            }
+        },
+    });
+
+    flatpickr("#date-to", {
+        locale: "de",
+        dateFormat: "d.m.Y",
+        defaultDate: dateToISO,
+        onChange: function (selectedDates, dateStr, instance) {
+            if (selectedDates[0]) {
+                dateToISO = selectedDates[0].toISOString().slice(0, 10);
+            }
+        },
+    });
 }
 
 // ---- Status bar ----
@@ -106,32 +133,59 @@ function countToColor(count, maxCount) {
 
 async function loadSegments() {
     var category = document.getElementById("category").value;
-    var dateFrom = document.getElementById("date-from").value;
-    var dateTo = document.getElementById("date-to").value;
     var userIds = getSelectedUserIds();
 
     var params = new URLSearchParams({ category: category });
-    if (dateFrom) params.set("date_from", dateFrom);
-    if (dateTo) params.set("date_to", dateTo);
+    if (dateFromISO) params.set("date_from", dateFromISO);
+    if (dateToISO)   params.set("date_to",   dateToISO);
     if (userIds.length > 0) params.set("user_ids", userIds.join(","));
 
-    setStatus("Loading segments...");
+    setStatus("Loading tracks and segments...");
     document.getElementById("btn-load").disabled = true;
 
     try {
-        var resp = await fetch("/api/segments?" + params.toString());
-        if (!resp.ok) {
-            var err = await resp.json();
-            throw new Error(err.error || "Server error");
-        }
-        var data = await resp.json();
+        // Fetch both tracks and segments in parallel
+        var [tracksResp, segmentsResp] = await Promise.all([
+            fetch("/api/tracks?"    + params.toString()),
+            fetch("/api/segments?"  + params.toString()),
+        ]);
+        if (!tracksResp.ok)   throw new Error("Failed to load tracks");
+        if (!segmentsResp.ok) throw new Error((await segmentsResp.json()).error || "Server error");
+
+        var tracksData   = await tracksResp.json();
+        var data = await segmentsResp.json();
+        renderTracks(tracksData.tracks || []);
         renderEdges(data);
         showActivityStats(data);
-        setStatus("Loaded " + data.edges.length + " segments");
+        setStatus("Loaded " + (tracksData.tracks || []).length + " tracks, " + data.edges.length + " segments");
     } catch (err) {
         setStatus("Error: " + err.message, true);
     } finally {
         document.getElementById("btn-load").disabled = false;
+    }
+}
+
+function renderTracks(tracks) {
+    trackLayers.clearLayers();
+    if (!tracks.length) return;
+
+    var bounds = [];
+    tracks.forEach(function (track) {
+        var latlngs = track.coords.map(function (c) { return [c[0], c[1]]; });
+        L.polyline(latlngs, {
+            color: "#94a3b8",
+            weight: 4,
+            opacity: 0.6,
+            dashArray: "6 5",
+            lineCap: "round",
+            lineJoin: "round",
+        }).addTo(trackLayers);
+        bounds.push(latlngs[0]);
+        bounds.push(latlngs[latlngs.length - 1]);
+    });
+
+    if (bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [20, 20] });
     }
 }
 
@@ -145,12 +199,15 @@ function showActivityStats(data) {
 function renderEdges(data) {
     edgeLayers.clearLayers();
     selectedEdges = [];
+    // fit bounds driven by tracks; only fit here if no tracks loaded
+    if (!trackLayers.getLayers().length && data.edges.length) {
+        var b = data.edges.map(function (e) { return e.coords; }).flat();
+        if (b.length) map.fitBounds(b, { padding: [20, 20] });
+    }
     updateSelectionPanel();
     edgeData = data.edges;
 
     if (!data.edges.length) return;
-
-    var bounds = [];
 
     currentMaxCount = data.max_count || 1;
 
@@ -186,13 +243,7 @@ function renderEdges(data) {
         });
 
         edgeLayers.addLayer(line);
-        bounds.push(latlngs[0]);
-        bounds.push(latlngs[1]);
     });
-
-    if (bounds.length > 0) {
-        map.fitBounds(bounds, { padding: [20, 20] });
-    }
 }
 
 // ---- Hover info ----
