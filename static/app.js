@@ -215,12 +215,10 @@ function renderEdges(data) {
         var latlngs = edge.coords.map(function (c) { return [c[0], c[1]]; });
         var color = countToColor(edge.count, currentMaxCount);
 
-        var line = L.polyline(latlngs, {
-            color: color,
-            weight: 5,
-            opacity: 0.8,
-            lineCap: "round",
-        });
+        var lineStyle = edge.count === 1
+            ? { color: color, weight: 4, opacity: 0.7, dashArray: "6 5", lineCap: "round" }
+            : { color: color, weight: 5, opacity: 0.8, lineCap: "round" };
+        var line = L.polyline(latlngs, lineStyle);
 
         line._favIdx = idx;
         line._favSelected = false;
@@ -234,7 +232,7 @@ function renderEdges(data) {
 
         line.on("mouseout", function () {
             if (!line._favSelected) {
-                line.setStyle({ weight: 5, opacity: 0.8 });
+                line.setStyle(lineStyle);
             }
         });
 
@@ -276,7 +274,10 @@ function toggleEdgeSelection(line, edge, idx) {
         selectedEdges.push({ idx: idx, edge: edge });
     } else {
         var color = countToColor(edge.count, currentMaxCount);
-        line.setStyle({ color: color, weight: 5, opacity: 0.8 });
+        var restoreStyle = edge.count === 1
+            ? { color: color, weight: 4, opacity: 0.7, dashArray: "6 5", lineCap: "round" }
+            : { color: color, weight: 5, opacity: 0.8, lineCap: "round" };
+        line.setStyle(restoreStyle);
         selectedEdges = selectedEdges.filter(function (s) { return s.idx !== idx; });
     }
     updateSelectionPanel();
@@ -299,7 +300,10 @@ function clearSelection() {
             layer._favSelected = false;
             var edge = edgeData[layer._favIdx];
             var color = countToColor(edge.count, currentMaxCount);
-            layer.setStyle({ color: color, weight: 5, opacity: 0.8 });
+            var restoreStyle = edge.count === 1
+                ? { color: color, weight: 4, opacity: 0.7, dashArray: "6 5", lineCap: "round" }
+                : { color: color, weight: 5, opacity: 0.8, lineCap: "round" };
+            layer.setStyle(restoreStyle);
         }
     });
     selectedEdges = [];
