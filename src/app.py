@@ -396,7 +396,7 @@ def _filter_activity_ids(garmin_db_path: str, activity_ids: set[int],
 
     where = " AND ".join(conditions)
     try:
-        conn = sqlite3.connect(f"file:{garmin_db_path}?mode=ro", uri=True, timeout=10)
+        conn = sqlite3.connect(f"file:{garmin_db_path}?mode=ro&immutable=1", uri=True, timeout=10)
         conn.row_factory = sqlite3.Row
         rows = conn.execute(f"SELECT id FROM activities WHERE {where}", params).fetchall()
         conn.close()
@@ -404,4 +404,7 @@ def _filter_activity_ids(garmin_db_path: str, activity_ids: set[int],
         log.error("Cannot filter activities from garmin_nostra DB", exc_info=True)
         return set()
 
-    return {r["id"] for r in rows}
+    filtered = {r["id"] for r in rows}
+    log.info("Filter: %d input → %d filtered (user_ids=%s, dates=%s..%s)",
+             len(activity_ids), len(filtered), user_ids_raw, date_from, date_to)
+    return filtered
