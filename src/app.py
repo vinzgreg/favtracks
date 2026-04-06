@@ -61,8 +61,8 @@ def create_app(config: dict | None = None) -> Flask:
           user_ids: comma-separated user IDs (optional, default=all)
         """
         category = request.args.get("category")
-        if category not in ("running", "cycling"):
-            return jsonify({"error": "Parameter 'category' is required and must be 'running' or 'cycling'."}), 400
+        if category not in ("running", "cycling", "mountain_biking"):
+            return jsonify({"error": "Parameter 'category' is required and must be 'running', 'cycling', or 'mountain_biking'."}), 400
 
         date_from = request.args.get("date_from")
         date_to = request.args.get("date_to")
@@ -71,11 +71,15 @@ def create_app(config: dict | None = None) -> Flask:
         grid_m = config["running_grid_m"] if category == "running" else config["cycling_grid_m"]
 
         # Get grid sequences from favtracks DB
+        db_category = "cycling" if category == "mountain_biking" else category
         store = FavTracksStore(config["favtracks_db_path"])
         try:
-            sequences = store.get_all_sequences(category=category)
+            sequences = store.get_all_sequences(category=db_category)
         finally:
             store.close()
+
+        if category == "mountain_biking":
+            sequences = [s for s in sequences if "mountain_bik" in (s["activity_type"] or "").lower()]
 
         total_in_category = len(sequences)
 
@@ -178,18 +182,22 @@ def create_app(config: dict | None = None) -> Flask:
         built from stored grid cell coordinates (no GPX re-reads).
         """
         category = request.args.get("category")
-        if category not in ("running", "cycling"):
-            return jsonify({"error": "Parameter 'category' must be 'running' or 'cycling'."}), 400
+        if category not in ("running", "cycling", "mountain_biking"):
+            return jsonify({"error": "Parameter 'category' must be 'running', 'cycling', or 'mountain_biking'."}), 400
 
         date_from = request.args.get("date_from")
         date_to = request.args.get("date_to")
         user_ids_raw = request.args.get("user_ids")
 
+        db_category = "cycling" if category == "mountain_biking" else category
         store = FavTracksStore(config["favtracks_db_path"])
         try:
-            sequences = store.get_all_sequences(category=category)
+            sequences = store.get_all_sequences(category=db_category)
         finally:
             store.close()
+
+        if category == "mountain_biking":
+            sequences = [s for s in sequences if "mountain_bik" in (s["activity_type"] or "").lower()]
 
         if not sequences:
             return jsonify({"tracks": []})
