@@ -143,9 +143,28 @@ select, input[type="date"] {
     margin-bottom: 6px;
 }
 
-.segment-info p {
-    font-size: 13px;
-    margin-bottom: 4px;
+.info-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.info-table th, .info-table td {
+    text-align: left;
+    padding: 2px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.info-table th {
+    font-size: 11px;
+    color: #888;
+    border-bottom: 1px solid #ddd;
+}
+
+.info-table tbody tr:hover {
+    background: #f0f4ff;
 }
 
 .selection-panel {

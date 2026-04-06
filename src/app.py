@@ -236,9 +236,11 @@ def create_app(config: dict | None = None) -> Flask:
             conn.row_factory = sqlite3.Row
             placeholders = ",".join("?" for _ in activity_ids)
             rows = conn.execute(
-                f"SELECT id, activity_name, start_time_local, activity_type "
-                f"FROM activities WHERE id IN ({placeholders}) "
-                f"ORDER BY start_time_local DESC",
+                f"SELECT a.id, a.activity_name, a.start_time_local, "
+                f"a.activity_type, u.name AS user_name "
+                f"FROM activities a JOIN users u ON a.user_id = u.id "
+                f"WHERE a.id IN ({placeholders}) "
+                f"ORDER BY a.start_time_local DESC LIMIT 20",
                 activity_ids,
             ).fetchall()
             conn.close()
@@ -252,6 +254,7 @@ def create_app(config: dict | None = None) -> Flask:
                 "name": r["activity_name"],
                 "date": r["start_time_local"],
                 "type": r["activity_type"],
+                "user": r["user_name"],
             }
             for r in rows
         ]

@@ -246,19 +246,31 @@ function renderEdges(data) {
 
 // ---- Hover info ----
 
+function truncate(str, max) {
+    if (!str) return "-";
+    return str.length > max ? str.slice(0, max - 1) + "\u2026" : str;
+}
+
 async function showEdgeInfo(edge) {
     var panel = document.getElementById("segment-info");
     document.getElementById("info-count").textContent = edge.count;
-    document.getElementById("info-last-date").textContent = "...";
-    document.getElementById("info-last-name").textContent = "...";
+    document.getElementById("info-table-wrap").innerHTML = "<em>Loading\u2026</em>";
     panel.classList.remove("hidden");
 
     try {
         var resp = await fetch("/api/segment_info?activity_ids=" + edge.activity_ids.join(","));
         if (!resp.ok) return;
         var info = await resp.json();
-        document.getElementById("info-last-date").textContent = formatDateDE(info.last_date);
-        document.getElementById("info-last-name").textContent = info.last_name || "-";
+        var rows = (info.activities || []).map(function (a) {
+            return "<tr><td>" + truncate(a.user, 12) + "</td>"
+                 + "<td>" + formatDateDE(a.date) + "</td>"
+                 + "<td title=\"" + (a.name || "").replace(/"/g, "&quot;") + "\">"
+                 + truncate(a.name, 24) + "</td></tr>";
+        });
+        var html = "<table class=\"info-table\"><thead><tr>"
+                 + "<th>User</th><th>Date</th><th>Activity</th>"
+                 + "</tr></thead><tbody>" + rows.join("") + "</tbody></table>";
+        document.getElementById("info-table-wrap").innerHTML = html;
     } catch (_) {
         // silently ignore hover fetch errors
     }
