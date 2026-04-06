@@ -259,6 +259,10 @@ def create_app(config: dict | None = None) -> Flask:
             for r in rows
         ]
 
+        log.info("segment_info: requested ids=%s, returned ids=%s",
+                 activity_ids,
+                 [(a["id"], a["user"], a["name"]) for a in activities])
+
         return jsonify({
             "count": len(activities),
             "last_date": activities[0]["date"] if activities else None,

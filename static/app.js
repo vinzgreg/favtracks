@@ -262,13 +262,14 @@ async function showEdgeInfo(edge) {
         if (!resp.ok) return;
         var info = await resp.json();
         var rows = (info.activities || []).map(function (a) {
-            return "<tr><td>" + truncate(a.user, 12) + "</td>"
+            return "<tr><td class=\"id-col\">" + a.id + "</td>"
+                 + "<td>" + truncate(a.user, 12) + "</td>"
                  + "<td>" + formatDateDE(a.date) + "</td>"
                  + "<td title=\"" + (a.name || "").replace(/"/g, "&quot;") + "\">"
                  + truncate(a.name, 24) + "</td></tr>";
         });
         var html = "<table class=\"info-table\"><thead><tr>"
-                 + "<th>User</th><th>Date</th><th>Activity</th>"
+                 + "<th>#</th><th>User</th><th>Date</th><th>Activity</th>"
                  + "</tr></thead><tbody>" + rows.join("") + "</tbody></table>";
         document.getElementById("info-table-wrap").innerHTML = html;
     } catch (_) {
