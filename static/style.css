@@ -163,11 +163,6 @@ select, input[type="date"] {
     border-bottom: 1px solid #ddd;
 }
 
-.info-table .id-col {
-    color: #999;
-    font-size: 11px;
-}
-
 .info-table tbody tr:hover {
     background: #f0f4ff;
 }
