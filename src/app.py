@@ -104,8 +104,21 @@ def create_app(config: dict | None = None) -> Flask:
 
         # Compute overlaps
         overlaps = compute_overlaps(sequences, grid_m)
+
+        # Activities that never share a grid cell with any other activity are
+        # "single-use" tracks: their whole route was used exactly once.
+        shared_activity_ids = set()
+        for info in overlaps.values():
+            shared_activity_ids.update(info["activity_ids"])
+        single_activity_ids = sorted(
+            {s["activity_id"] for s in sequences} - shared_activity_ids
+        )
+
         if not overlaps:
-            return jsonify({"edges": [], "max_count": 0})
+            return jsonify({"edges": [], "max_count": 0,
+                            "total_activities": total_in_category,
+                            "filtered_activities": filtered_count,
+                            "single_activity_ids": single_activity_ids})
 
         # Build a lookup: (row, col) -> original GPS coord per activity
         # Each activity may have a different representative coord for the same cell
@@ -157,7 +170,8 @@ def create_app(config: dict | None = None) -> Flask:
         if not edge_data:
             return jsonify({"edges": [], "max_count": 0,
                             "total_activities": total_in_category,
-                            "filtered_activities": filtered_count})
+                            "filtered_activities": filtered_count,
+                            "single_activity_ids": single_activity_ids})
 
         max_count = max(e["count"] for e in edge_data.values())
 
@@ -172,7 +186,8 @@ def create_app(config: dict | None = None) -> Flask:
 
         return jsonify({"edges": edges, "max_count": max_count,
                         "total_activities": total_in_category,
-                        "filtered_activities": filtered_count})
+                        "filtered_activities": filtered_count,
+                        "single_activity_ids": single_activity_ids})
 
     @app.route("/api/tracks")
     def api_tracks():
@@ -227,6 +242,7 @@ def create_app(config: dict | None = None) -> Flask:
 
         Query params:
           activity_ids: comma-separated activity IDs
+          limit: max rows to return (optional, default 20)
         """
         ids_raw = request.args.get("activity_ids", "")
         if not ids_raw:
@@ -236,6 +252,11 @@ def create_app(config: dict | None = None) -> Flask:
             activity_ids = [int(x) for x in ids_raw.split(",")]
         except ValueError:
             return jsonify({"error": "activity_ids must be comma-separated integers."}), 400
+
+        try:
+            limit = int(request.args.get("limit", 20))
+        except ValueError:
+            limit = 20
 
         try:
             conn = sqlite3.connect(
@@ -248,8 +269,8 @@ def create_app(config: dict | None = None) -> Flask:
                 f"a.activity_type, u.name AS user_name "
                 f"FROM activities a JOIN users u ON a.user_id = u.id "
                 f"WHERE a.id IN ({placeholders}) "
-                f"ORDER BY a.start_time_local DESC LIMIT 20",
-                activity_ids,
+                f"ORDER BY a.start_time_local DESC LIMIT ?",
+                activity_ids + [limit],
             ).fetchall()
             conn.close()
         except sqlite3.OperationalError:

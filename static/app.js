@@ -157,6 +157,7 @@ async function loadSegments() {
         renderTracks(tracksData.tracks || []);
         renderEdges(data);
         showActivityStats(data);
+        renderSingleTracks(data.single_activity_ids || []);
         setStatus("Loaded " + (tracksData.tracks || []).length + " tracks, " + data.edges.length + " segments");
     } catch (err) {
         setStatus("Error: " + err.message, true);
@@ -165,6 +166,16 @@ async function loadSegments() {
     }
 }
 
+var TRACK_STYLE = {
+    color: "#1565c0",
+    weight: 4,
+    opacity: 0.75,
+    dashArray: "6 5",
+    lineCap: "round",
+    lineJoin: "round",
+};
+var TRACK_HOVER_STYLE = { color: "#0d47a1", weight: 6, opacity: 1, dashArray: "6 5", lineCap: "round" };
+
 function renderTracks(tracks) {
     trackLayers.clearLayers();
     if (!tracks.length) return;
@@ -172,14 +183,16 @@ function renderTracks(tracks) {
     var bounds = [];
     tracks.forEach(function (track) {
         var latlngs = track.coords.map(function (c) { return [c[0], c[1]]; });
-        L.polyline(latlngs, {
-            color: "#1565c0",
-            weight: 4,
-            opacity: 0.75,
-            dashArray: "6 5",
-            lineCap: "round",
-            lineJoin: "round",
-        }).addTo(trackLayers);
+        var line = L.polyline(latlngs, TRACK_STYLE).addTo(trackLayers);
+
+        line.on("mouseover", function () {
+            line.setStyle(TRACK_HOVER_STYLE);
+            showTrackInfo(track.activity_id);
+        });
+        line.on("mouseout", function () {
+            line.setStyle(TRACK_STYLE);
+        });
+
         bounds.push(latlngs[0]);
         bounds.push(latlngs[latlngs.length - 1]);
     });
@@ -194,6 +207,33 @@ function showActivityStats(data) {
     document.getElementById("stats-filtered").textContent = data.filtered_activities || 0;
     document.getElementById("stats-total").textContent = data.total_activities || 0;
     panel.classList.remove("hidden");
+}
+
+// ---- Single-segment tracks (never overlap with any other activity) ----
+
+async function renderSingleTracks(activityIds) {
+    var panel = document.getElementById("single-tracks-panel");
+    var wrap = document.getElementById("single-tracks-table-wrap");
+
+    if (!activityIds.length) {
+        panel.classList.add("hidden");
+        return;
+    }
+
+    document.getElementById("single-tracks-count").textContent = activityIds.length;
+    wrap.innerHTML = "<em>Loading…</em>";
+    panel.classList.remove("hidden");
+
+    try {
+        var resp = await fetch(
+            "/api/segment_info?activity_ids=" + activityIds.join(",") + "&limit=" + activityIds.length
+        );
+        if (!resp.ok) return;
+        var info = await resp.json();
+        wrap.innerHTML = activitiesTableHTML(info.activities);
+    } catch (_) {
+        wrap.innerHTML = "<em>Failed to load</em>";
+    }
 }
 
 function renderEdges(data) {
@@ -251,6 +291,18 @@ function truncate(str, max) {
     return str.length > max ? str.slice(0, max - 1) + "\u2026" : str;
 }
 
+function activitiesTableHTML(activities) {
+    var rows = (activities || []).map(function (a) {
+        return "<tr><td>" + formatDateDE(a.date) + "</td>"
+             + "<td title=\"" + (a.name || "").replace(/"/g, "&quot;") + "\">"
+             + truncate(a.name, 24) + "</td>"
+             + "<td>" + truncate(a.user, 12) + "</td></tr>";
+    });
+    return "<table class=\"info-table\"><thead><tr>"
+         + "<th>Date</th><th>Activity</th><th>User</th>"
+         + "</tr></thead><tbody>" + rows.join("") + "</tbody></table>";
+}
+
 async function showEdgeInfo(edge) {
     var panel = document.getElementById("segment-info");
     document.getElementById("info-count").textContent = edge.count;
@@ -261,16 +313,23 @@ async function showEdgeInfo(edge) {
         var resp = await fetch("/api/segment_info?activity_ids=" + edge.activity_ids.join(","));
         if (!resp.ok) return;
         var info = await resp.json();
-        var rows = (info.activities || []).map(function (a) {
-            return "<tr><td>" + formatDateDE(a.date) + "</td>"
-                 + "<td title=\"" + (a.name || "").replace(/"/g, "&quot;") + "\">"
-                 + truncate(a.name, 24) + "</td>"
-                 + "<td>" + truncate(a.user, 12) + "</td></tr>";
-        });
-        var html = "<table class=\"info-table\"><thead><tr>"
-                 + "<th>Date</th><th>Activity</th><th>User</th>"
-                 + "</tr></thead><tbody>" + rows.join("") + "</tbody></table>";
-        document.getElementById("info-table-wrap").innerHTML = html;
+        document.getElementById("info-table-wrap").innerHTML = activitiesTableHTML(info.activities);
+    } catch (_) {
+        // silently ignore hover fetch errors
+    }
+}
+
+async function showTrackInfo(activityId) {
+    var panel = document.getElementById("track-info");
+    var wrap = document.getElementById("track-info-table-wrap");
+    wrap.innerHTML = "<em>Loading\u2026</em>";
+    panel.classList.remove("hidden");
+
+    try {
+        var resp = await fetch("/api/segment_info?activity_ids=" + activityId);
+        if (!resp.ok) return;
+        var info = await resp.json();
+        wrap.innerHTML = activitiesTableHTML(info.activities);
     } catch (_) {
         // silently ignore hover fetch errors
     }

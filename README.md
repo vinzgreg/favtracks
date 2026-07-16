@@ -7,10 +7,12 @@ and highlights route segments by usage frequency — red for heavily used, green
 ## Features
 
 - **Heatmap view** of route segments colored by frequency (red → orange → green)
-- **Activity type filter** — switch between running and cycling
+- **Activity type filter** — switch between running, cycling, or MTB-only
 - **Date range filter** — focus on a specific time period
 - **Multi-user support** — show all users or filter by one or more
 - **Hover info** — see how often a segment was used, last activity date and name
+- **Hovered track panel** — hover any track (including parts never shared with another activity) to see that activity's date, name, and user
+- **Single-segment tracks list** — a sidebar table of activities whose entire route was never repeated by anyone in the current filter
 - **Segment selection** — click segments to select them
 - **GPX export** — export selected segments using original GPS points (single track or multi-segment)
 - **Responsive layout** — works on desktop and mobile
@@ -89,7 +91,7 @@ The entrypoint runs `incremental` automatically on every container start, then l
 
 1. **Grid snapping** — each GPS track is snapped to a grid (20m cells for running, 50m for cycling). Consecutive duplicate cells are collapsed.
 2. **Per-activity storage** — the grid cell sequence for each activity is stored in `favtracks.db`.
-3. **Query-time overlap** — when you load the map, the backend filters activities by your selected type, date range, and users, then computes which grid cells appear in multiple activities. These overlapping cells are grouped into contiguous segments.
+3. **Query-time overlap** — when you load the map, the backend filters activities by your selected type, date range, and users, then computes which grid cells appear in multiple activities. These overlapping cells are grouped into contiguous segments. Activities with no overlapping cells at all are listed as single-segment tracks.
 4. **Original GPS export** — when exporting GPX, the original track points (not snapped coordinates) are extracted from the source GPX files.
 
 ## Docker setup
