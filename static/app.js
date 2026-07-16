@@ -28,19 +28,27 @@ function formatDateDE(isoStr) {
     return day + "." + month + "." + year;
 }
 
+function toISODateLocal(date) {
+    var year = date.getFullYear();
+    var month = String(date.getMonth() + 1).padStart(2, "0");
+    var day = String(date.getDate()).padStart(2, "0");
+    return year + "-" + month + "-" + day;
+}
+
 function initDateInputs() {
-    var now = new Date();
-    var year = now.getFullYear();
-    dateFromISO = year + "-01-01";
-    dateToISO   = year + "-12-31";
+    var year = new Date().getFullYear();
+    var jan1 = new Date(year, 0, 1);
+    var dec31 = new Date(year, 11, 31);
+    dateFromISO = toISODateLocal(jan1);
+    dateToISO   = toISODateLocal(dec31);
 
     flatpickr("#date-from", {
         locale: "de",
         dateFormat: "d.m.Y",
-        defaultDate: dateFromISO,
+        defaultDate: jan1,
         onChange: function (selectedDates, dateStr, instance) {
             if (selectedDates[0]) {
-                dateFromISO = selectedDates[0].toISOString().slice(0, 10);
+                dateFromISO = toISODateLocal(selectedDates[0]);
             }
         },
     });
@@ -48,10 +56,10 @@ function initDateInputs() {
     flatpickr("#date-to", {
         locale: "de",
         dateFormat: "d.m.Y",
-        defaultDate: dateToISO,
+        defaultDate: dec31,
         onChange: function (selectedDates, dateStr, instance) {
             if (selectedDates[0]) {
-                dateToISO = selectedDates[0].toISOString().slice(0, 10);
+                dateToISO = toISODateLocal(selectedDates[0]);
             }
         },
     });
@@ -293,13 +301,17 @@ function truncate(str, max) {
 
 function activitiesTableHTML(activities) {
     var rows = (activities || []).map(function (a) {
-        return "<tr><td>" + formatDateDE(a.date) + "</td>"
-             + "<td title=\"" + (a.name || "").replace(/"/g, "&quot;") + "\">"
-             + truncate(a.name, 24) + "</td>"
-             + "<td>" + truncate(a.user, 12) + "</td></tr>";
+        var type = (a.type || "").replace(/_/g, " ");
+        return "<tr><td class=\"col-date\">" + formatDateDE(a.date) + "</td>"
+             + "<td class=\"col-type\" title=\"" + type.replace(/"/g, "&quot;") + "\">"
+             + truncate(type, 10) + "</td>"
+             + "<td class=\"col-activity\" title=\"" + (a.name || "").replace(/"/g, "&quot;") + "\">"
+             + truncate(a.name, 18) + "</td>"
+             + "<td class=\"col-user\">" + truncate(a.user, 10) + "</td></tr>";
     });
     return "<table class=\"info-table\"><thead><tr>"
-         + "<th>Date</th><th>Activity</th><th>User</th>"
+         + "<th class=\"col-date\">Date</th><th class=\"col-type\">Type</th>"
+         + "<th class=\"col-activity\">Activity</th><th class=\"col-user\">User</th>"
          + "</tr></thead><tbody>" + rows.join("") + "</tbody></table>";
 }
 

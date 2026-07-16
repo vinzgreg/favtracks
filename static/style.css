@@ -145,6 +145,7 @@ select, input[type="date"] {
 
 .info-table {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: 12px;
 }
@@ -156,6 +157,11 @@ select, input[type="date"] {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+.info-table .col-date     { width: 24%; }
+.info-table .col-type     { width: 22%; }
+.info-table .col-activity { width: 36%; }
+.info-table .col-user     { width: 18%; }
 
 .info-table th {
     font-size: 11px;
